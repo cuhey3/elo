@@ -4,6 +4,7 @@ use crate::sfl::SflTeam::*;
 use rand::prelude::*;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct SflRecord {
@@ -262,6 +263,10 @@ impl SflStage {
         }
     }
     // パフォーマンスの問題もあるから前後の関連だけ見て修正する
+    // is_valid = true フラグが立っているレコードについて見直して一部 is_valid = false に変える
+    // ポイントを決着セットに書き加える
+    // 決着していない場合はもちろんポイントを書かない
+    // ランダム結果と実際結果が混じることがある
     pub fn correct_records(&self, records: &mut Vec<SflRecord>) {
         match self {
             JP2024DivisionS | JP2024DivisionF => {
@@ -274,83 +279,139 @@ impl SflStage {
                 let general1 = records.get(6).unwrap().to_owned();
                 let general2 = records.get(7).unwrap().to_owned();
                 let general3 = records.get(8).unwrap().to_owned();
+                let general4 = records.get(9).unwrap().to_owned();
                 let general5 = records.get(10).unwrap().to_owned();
 
-                // 先鋒戦の更新
-                let mut_van3 = records.get_mut(2).unwrap();
-                mut_van3.is_valid = van1.win_flag != van2.win_flag;
-                // ⚪︎⚪︎ or ⚪︎×⚪︎ or ×⚪︎⚪︎
-                let van_win_flag = (van1.win_flag && van2.win_flag)
-                    || (van1.win_flag && van3.win_flag)
-                    || (van2.win_flag && van3.win_flag);
+                let mut team_point: u32 = 0;
+                let mut opponent_team_point: u32 = 0;
+
+                // 先鋒戦のポイント決定
                 let van_point = VAN.get_point();
-                let mut win_point = if van_win_flag { van_point } else { 0 };
-                if mut_van3.is_valid {
-                    mut_van3.point = van_point
-                } else {
-                    let mut_van2 = records.get_mut(1).unwrap();
-                    mut_van2.point = van_point
-                };
+                if van1.is_valid && van2.is_valid {
+                    if van1.win_flag == van2.win_flag {
+                        let mut_van2 = records.get_mut(1).unwrap();
+                        mut_van2.point = van_point;
+                        let mut_van3 = records.get_mut(2).unwrap();
+                        mut_van3.is_valid = false;
+                        // ポイントのリセットはここではしない
+                        // mut_van3.point = 0;
+                        if van1.win_flag {
+                            team_point += van_point;
+                        } else {
+                            opponent_team_point += van_point;
+                        }
+                    } else if van3.is_valid {
+                        let mut_van3 = records.get_mut(2).unwrap();
+                        mut_van3.is_valid = true;
+                        mut_van3.point = van_point;
+                        // ポイントのリセットはここではしない
+                        let mut_van2 = records.get_mut(1).unwrap();
+                        // mut_van2.point = 0;
+                        if van3.win_flag {
+                            team_point += van_point;
+                        } else {
+                            opponent_team_point += van_point;
+                        }
+                    }
+                }
 
-                // 中堅戦の更新
-                let mut_mid3 = records.get_mut(5).unwrap();
-                mut_mid3.is_valid = mid1.win_flag != mid2.win_flag;
-
-                // ⚪︎⚪︎ or ⚪︎×⚪︎ or ×⚪︎⚪︎
-                let mid_win_flag = (mid1.win_flag && mid2.win_flag)
-                    || (mid1.win_flag && mid3.win_flag)
-                    || (mid2.win_flag && mid3.win_flag);
+                // 中堅戦のポイント決定
                 let mid_point = MID.get_point();
-                win_point += if mid_win_flag { mid_point } else { 0 };
-                if mut_mid3.is_valid {
-                    mut_mid3.point = mid_point
-                } else {
-                    let mut_mid2 = records.get_mut(4).unwrap();
-                    mut_mid2.point = mid_point
-                };
+                if mid1.is_valid && mid2.is_valid {
+                    if mid1.win_flag == mid2.win_flag {
+                        let mut_mid2 = records.get_mut(4).unwrap();
+                        mut_mid2.point = mid_point;
+                        let mut_mid3 = records.get_mut(5).unwrap();
+                        mut_mid3.is_valid = false;
+                        // ポイントのリセットはここではしない
+                        // mut_mid3.point = 0;
+                        if mid1.win_flag {
+                            team_point += mid_point;
+                        } else {
+                            opponent_team_point += mid_point;
+                        }
+                    } else if mid3.is_valid {
+                        let mut_mid3 = records.get_mut(5).unwrap();
+                        mut_mid3.is_valid = true;
+                        mut_mid3.point = mid_point;
+                        // ポイントのリセットはここではしない
+                        let mut_mid2 = records.get_mut(4).unwrap();
+                        // mut_mid2.point = 0;
+                        if mid3.win_flag {
+                            team_point += mid_point;
+                        } else {
+                            opponent_team_point += mid_point;
+                        }
+                    }
+                }
 
-                // 大将戦の更新
+                // 大将戦
                 let general_point = GENERAL.get_point();
-                let mut_general4 = records.get_mut(9).unwrap();
-                // 大将戦4の有効条件は、それまでの3試合の勝敗が全て同じではないこと
-                mut_general4.is_valid = !((general1.win_flag == general2.win_flag)
-                    && (general1.win_flag == general3.win_flag));
-                let general4 = mut_general4.to_owned();
-                // 大将戦5の有効条件は、大将戦4が有効かつ、勝敗が2勝2敗であること
-                let mut_general5 = records.get_mut(10).unwrap();
-                mut_general5.is_valid = general4.is_valid && {
-                    let mut general_win_count = 0;
-                    if general1.win_flag {
-                        general_win_count += 1
+                if general1.is_valid && general2.is_valid && general3.is_valid {
+                    if general1.win_flag == general2.win_flag
+                        && general1.win_flag == general3.win_flag
+                    {
+                        let mut_general3 = records.get_mut(8).unwrap();
+                        mut_general3.point = general_point;
+                        let mut_general4 = records.get_mut(9).unwrap();
+                        mut_general4.is_valid = false;
+                        // ポイントのリセットはここではしない
+                        // mut_general4.point = 0;
+                        let mut_general5 = records.get_mut(10).unwrap();
+                        mut_general5.is_valid = false;
+                        // ポイントのリセットはここではしない
+                        // mut_general5.point = 0;
+                        if general1.win_flag {
+                            team_point += general_point;
+                        } else {
+                            opponent_team_point += general_point;
+                        }
+                    } else if general4.is_valid {
+                        let decide_flag = (general4.win_flag == general1.win_flag
+                            && general4.win_flag == general2.win_flag
+                            && general4.win_flag != general3.win_flag)
+                            || (general4.win_flag == general1.win_flag
+                                && general4.win_flag != general2.win_flag
+                                && general4.win_flag == general3.win_flag)
+                            || (general4.win_flag != general1.win_flag
+                                && general4.win_flag == general2.win_flag
+                                && general4.win_flag == general3.win_flag);
+                        if decide_flag {
+                            // ポイントのリセットはここではしない
+                            let mut_general5 = records.get_mut(10).unwrap();
+                            mut_general5.is_valid = false;
+                            let mut_general4 = records.get_mut(9).unwrap();
+                            mut_general4.is_valid = true;
+                            mut_general4.point = general_point;
+                            // mut_general5.point = 0;
+                            if mut_general4.win_flag {
+                                team_point += general_point;
+                            } else {
+                                opponent_team_point += general_point;
+                            }
+                        } else {
+                            if general5.is_valid {
+                                let mut_general5 = records.get_mut(10).unwrap();
+                                mut_general5.is_valid = true;
+                                mut_general5.point = general_point;
+                                // ポイントのリセットはここではしない
+                                // let mut_general4 = records.get_mut(9).unwrap();
+                                // mut_general4.point = 0;
+                                if mut_general5.win_flag {
+                                    team_point += general_point;
+                                } else {
+                                    opponent_team_point += general_point;
+                                }
+                            }
+                        }
                     }
-                    if general2.win_flag {
-                        general_win_count += 1
-                    }
-                    if general3.win_flag {
-                        general_win_count += 1
-                    }
-                    if general4.win_flag {
-                        general_win_count += 1
-                    }
-                    general_win_count == 2
-                };
-                let general_win_flag = if mut_general5.is_valid {
-                    mut_general5.point = general_point;
-                    general5.win_flag
-                } else if general4.is_valid {
-                    let mut_general4 = records.get_mut(9).unwrap();
-                    mut_general4.point = general_point;
-                    general4.win_flag
-                } else {
-                    let mut_general3 = records.get_mut(8).unwrap();
-                    mut_general3.point = general_point;
-                    general3.win_flag
-                };
-                win_point += if general_win_flag { general_point } else { 0 };
+                }
 
                 // 延長戦
                 let mut_extra1 = records.get_mut(11).unwrap();
-                mut_extra1.is_valid = if win_point == general_point {
+                mut_extra1.is_valid = if team_point == van_point + mid_point
+                    && opponent_team_point == general_point
+                {
                     mut_extra1.point = EXTRA.get_point();
                     true
                 } else {
@@ -388,6 +449,12 @@ pub enum SflTeam {
     RC,
     VAR,
     FAV,
+}
+
+impl fmt::Display for SflTeam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub enum SflRatingSetting {
@@ -461,7 +528,7 @@ pub fn create_key_function_and_init_rating_map(
         }
         SflRatingSetting::HomeAwayGameType => {
             for team in teams.iter() {
-                for n in [100, 101, 110, 111].into_iter() {
+                for n in [100_u8, 101_u8, 110_u8, 111_u8] {
                     rating_map.insert((team.to_owned(), n), default_rating);
                 }
             }
@@ -499,10 +566,12 @@ pub fn create_key_function_and_init_rating_map(
 
 fn init_rating_map(teams: Vec<SflTeam>) {}
 
-pub fn get_place_sim_count(sfl_stage: SflStage) -> HashMap<SflTeam, Vec<u32>> {
-    let mut count: HashMap<SflTeam, Vec<u32>> = HashMap::new();
+pub fn get_place_sim_count(
+    sfl_stage: SflStage,
+) -> HashMap<SflTeam, (Vec<u32>, (u32, u32, i32, i32))> {
+    let mut count: HashMap<SflTeam, (Vec<u32>, (u32, u32, i32, i32))> = HashMap::new();
     for team in sfl_stage.get_teams().into_iter() {
-        count.insert(team, vec![0; 6]);
+        count.insert(team, (vec![0; 6], (0, 0, 0, 0)));
     }
     count
 }
