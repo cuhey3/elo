@@ -103,25 +103,6 @@ impl EloRecord {
             lose_count,
         }
     }
-
-    pub fn sfl_new(
-        date: u64,
-        player_id: u32,
-        opponent_player_id: u32,
-        win_count: u32,
-    ) -> EloRecord {
-        EloRecord {
-            date,
-            tournament_id: 1,
-            tournament_sub_id: 1,
-            player_id,
-            character_id: 1,
-            opponent_player_id,
-            opponent_character_id: 1,
-            win_count,
-            lose_count: 1 - win_count,
-        }
-    }
 }
 
 const K: f64 = 16_f64;
@@ -150,22 +131,22 @@ pub fn get_player_rating(
             if win_flag {
                 // ○の処理
                 (player_rating, opponent_player_rating) =
-                    update_rating(player_rating, opponent_player_rating, win_flag);
+                    update_rating(&player_rating, &opponent_player_rating, &win_flag);
                 // ×の処理
                 (player_rating, opponent_player_rating) =
-                    update_rating(player_rating, opponent_player_rating, !win_flag);
+                    update_rating(&player_rating, &opponent_player_rating, &!win_flag);
             } else {
                 // ×の処理
                 (player_rating, opponent_player_rating) =
-                    update_rating(player_rating, opponent_player_rating, !win_flag);
+                    update_rating(&player_rating, &opponent_player_rating, &!win_flag);
                 // ○の処理
                 (player_rating, opponent_player_rating) =
-                    update_rating(player_rating, opponent_player_rating, win_flag);
+                    update_rating(&player_rating, &opponent_player_rating, &win_flag);
             }
         }
         for _ in 0..win_lose_over_count {
             (player_rating, opponent_player_rating) =
-                update_rating(player_rating, opponent_player_rating, win_flag);
+                update_rating(&player_rating, &opponent_player_rating, &win_flag);
         }
         rating_map.insert(r.player_id, player_rating);
         rating_map.insert(r.opponent_player_id, opponent_player_rating);
@@ -173,9 +154,9 @@ pub fn get_player_rating(
     rating_map
 }
 
-pub fn update_rating(a_rate: f64, b_rate: f64, a_win: bool) -> (f64, f64) {
+pub fn update_rating(a_rate: &f64, b_rate: &f64, a_win: &bool) -> (f64, f64) {
     let a_win_percentage = 1_f64 / (10_f64.powf((b_rate - a_rate) / 400_f64) + 1_f64);
-    if a_win {
+    if *a_win {
         let b_win_percentage = 1_f64 - a_win_percentage;
         let a_win_increment = b_win_percentage * K;
         (a_rate + a_win_increment, b_rate - a_win_increment)

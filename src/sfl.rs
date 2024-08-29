@@ -1,7 +1,6 @@
 use crate::sfl::GameType::{EXTRA, GENERAL, MID, VAN};
 use crate::sfl::SflStage::{JP2024DivisionF, JP2024DivisionS};
 use crate::sfl::SflTeam::*;
-use rand::prelude::*;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt;
@@ -305,7 +304,7 @@ impl SflStage {
                         mut_van3.is_valid = true;
                         mut_van3.point = van_point;
                         // ポイントのリセットはここではしない
-                        let mut_van2 = records.get_mut(1).unwrap();
+                        // let mut_van2 = records.get_mut(1).unwrap();
                         // mut_van2.point = 0;
                         if van3.win_flag {
                             team_point += van_point;
@@ -335,7 +334,7 @@ impl SflStage {
                         mut_mid3.is_valid = true;
                         mut_mid3.point = mid_point;
                         // ポイントのリセットはここではしない
-                        let mut_mid2 = records.get_mut(4).unwrap();
+                        // let mut_mid2 = records.get_mut(4).unwrap();
                         // mut_mid2.point = 0;
                         if mid3.win_flag {
                             team_point += mid_point;
@@ -563,8 +562,6 @@ pub fn create_key_function_and_init_rating_map(
         }
     }
 }
-
-fn init_rating_map(teams: Vec<SflTeam>) {}
 
 pub fn get_place_sim_count(
     sfl_stage: SflStage,

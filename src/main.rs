@@ -7,10 +7,9 @@ use crate::sfl::{
 };
 use rand::prelude::*;
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
-    foo(
+    get_simulate_result(
         SflStage::JP2024DivisionS,
         vec![
             // 1節
@@ -41,7 +40,7 @@ fn main() {
             ],
         ],
     );
-    foo(
+    get_simulate_result(
         SflStage::JP2024DivisionF,
         vec![
             // 1節
@@ -60,57 +59,54 @@ fn main() {
         ],
     );
 }
-fn foo(
+fn get_simulate_result(
     sfl_stage: SflStage,
-    played_game_results: Vec<Vec<bool>>,
+    played_match_results: Vec<Vec<bool>>,
 ) -> HashMap<SflTeam, (Vec<u32>, (u32, u32, i32, i32, f64, f64, f64, f64))> {
     let seed: [u8; 32] = [5; 32];
     let mut rng: StdRng = rand::SeedableRng::from_seed(seed);
-    //    let mut rng= StdRng::from_os_rng();
-    // match SystemTime::now().duration_since(UNIX_EPOCH) {
-    //     Ok(n) => {
-    //         println!("{}", n.as_secs())
-    //     }
-    //     Err(_) => panic!("SystemTime before UNIX EPOCH!"),
-    // }
-    // if true {
-    //     return;
-    // }
     let sfl_rate_setting = SflRatingSetting::HomeAwayGameType;
     let (rate_key_function, mut rating_map) =
         create_key_function_and_init_rating_map(sfl_rate_setting, sfl_stage.get_teams());
     // ステージに応じた初期状態のレコードを生成
-    let mut initial_match_records: Vec<Vec<SflRecord>> = sfl_stage.get_initial_records();
+    let mut initial_record_matches: Vec<Vec<SflRecord>> = sfl_stage.get_initial_records();
 
     // すでに行われた結果を初期状態のレコードに記入
-    for tup in played_game_results.iter().enumerate() {
-        let (index, match_results) = tup;
-        let records = initial_match_records.get_mut(index);
-        if records.is_none() {
+    for (index, played_match_result) in played_match_results.into_iter().enumerate() {
+        // すでに行われたマッチ結果のインデックスの方がマッチ予定より大きい時はbreak
+        let initial_records = initial_record_matches.get_mut(index);
+        if initial_records.is_none() {
             break;
         }
-        let records = records.unwrap();
-        for tup in match_results.iter().enumerate() {
-            let (index, win_flag) = tup;
-            let record = records.get_mut(index);
-            if record.is_none() {
+        let initial_records = initial_records.unwrap();
+        for (index, win_flag) in played_match_result.into_iter().enumerate() {
+            // すでに行われたバトル結果のインデックスの方が初期レコードのサイズより大きい時はpanic
+            let initial_record = initial_records.get_mut(index);
+            if initial_record.is_none() {
                 break;
             }
-            let record = record.unwrap();
-            record.win_flag = *win_flag;
-            record.is_valid = true;
-            record.is_prediction = false;
+            let initial_record = initial_record.unwrap();
+            initial_record.win_flag = win_flag; // 初期状態は false
+            initial_record.is_valid = true; // 初期状態は false
+            initial_record.is_prediction = false; // 初期状態は true
         }
     }
-    // すでに行われた分を補正
-    for records in initial_match_records.iter_mut() {
-        // 予想は補正対象外
+
+    // すでに行われた分の補正を行い、その後にレーティングに反映する
+    for records in initial_record_matches.iter_mut() {
+        // 第1セットから予想の場合は補正対象外
         if records.get(0).unwrap().is_prediction {
             continue;
         }
+        // 補正実行
+        // すでに行われた分を補正して、実際には行われなかったセットに is_valid = false を立てる
+        // 決着局にポイントを付与する
         sfl_stage.correct_records(records);
-        for record in records.iter() {
-            // 一部しか入力されていないレコードについては予想はレーティング計算対象外
+
+        // レーティング反映開始
+        for record in records.into_iter() {
+            // 無効なセットおよび予想のセットは無視
+            // ただし1マッチ最大12セットのうち、途中のセットが無効になることはあるので、breakはしない
             if !record.is_valid || record.is_prediction {
                 continue;
             }
@@ -118,7 +114,7 @@ fn foo(
             let team_rating = rating_map.get(&team_key).unwrap();
             let opponent_team_rating = rating_map.get(&opponent_team_key).unwrap();
             let (updated_rating, updated_opponent_rating) =
-                update_rating(*team_rating, *opponent_team_rating, record.win_flag);
+                update_rating(team_rating, opponent_team_rating, &record.win_flag);
             rating_map.insert(team_key, updated_rating);
             rating_map.insert(opponent_team_key, updated_opponent_rating);
         }
@@ -127,8 +123,10 @@ fn foo(
     // 順位の集計map
     let mut place_sim_count = sfl::get_place_sim_count(sfl_stage);
 
+    // チームごとに現在ポイントと現在バトル得失を集計
     for team in sfl_stage.get_teams() {
-        let records: Vec<&SflRecord> = initial_match_records
+        // チームが含まれる有効なレコードのみ抽出
+        let records: Vec<&SflRecord> = initial_record_matches
             .iter()
             .flatten()
             .filter(|r| {
@@ -137,6 +135,7 @@ fn foo(
                     && ((r.sfl_match.team == team) || (r.sfl_match.opponent_team == team))
             })
             .collect();
+        // 現在ポイントを集計
         let point: u32 = records
             .iter()
             .filter(|r| {
@@ -146,6 +145,7 @@ fn foo(
             })
             .map(|r| r.point)
             .sum();
+        // 現在バトル得失を集計
         let battle: i32 = records
             .iter()
             .map(|r| {
@@ -164,21 +164,19 @@ fn foo(
                 }
             })
             .sum();
-        let (count, mut tup) = place_sim_count.get(&team).unwrap();
-        tup.0 = point;
-        tup.2 = battle;
-        place_sim_count.insert(team.to_owned(), (count.to_owned(), tup));
+        let (counts, mut points) = place_sim_count.get(&team).unwrap();
+        points.0 = point;
+        points.2 = battle;
+        place_sim_count.insert(team.to_owned(), (counts.to_owned(), points));
     }
 
     // 1000回試行して小数点第一位まで表示
-    for x in 0..1000 {
-        // すでに行われた結果を反映したレコードをコピー
-        // ここの処理はあやしくて、新規コピーができていないっぽい
-        let mut match_records = initial_match_records.to_owned();
-
+    for x in 0..10000 {
         // ランダムに結果をセット（レーティング処理を追加するならここ）
-        for records in match_records.iter_mut() {
+        for records in initial_record_matches.iter_mut() {
             for record in records.iter_mut() {
+                // 前の試行でポイントが入っているのでリセットする
+                record.point = 0;
                 // すでに行われた結果では is_prediction: false となっているので continue
                 if !record.is_prediction {
                     continue;
@@ -191,10 +189,8 @@ fn foo(
                 // record.win_flag = rng.random();
                 record.win_flag = rng.gen_bool(team_win_percentage);
                 record.is_valid = true;
-                // TODO
-                // 本来はいらないがコピーがうまくいっていない
-                record.point = 0;
             }
+
             // 予想分の補正処理
             sfl_stage.correct_records(records);
             let sum: u32 = records.iter().map(|r| r.point).sum();
@@ -206,15 +202,11 @@ fn foo(
                 panic!()
             }
         }
-        // println!("{:?}", match_records);
-
-        //let rating_map = get_player_rating(elo_setting, record_list);
-        //println!("{:?}", rating_map);
 
         // 一次元vectorに変更
-        let mut sfl_records: Vec<SflRecord> = match_records.into_iter().flat_map(|x| x).collect();
+        let sfl_records: Vec<&SflRecord> = initial_record_matches.iter().flat_map(|x| x).collect();
 
-        // SflRecordから集計ロジックを開始
+        // この試行におけるポイント、バトル得失を集計するmap
         let mut point_map: HashMap<SflTeam, (u32, i32)> = HashMap::new();
         // チームの分だけ初期化
         for team in sfl_stage.get_teams().into_iter() {
